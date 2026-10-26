@@ -3,3 +3,5 @@ psycopg2-binary==2.9.9
 redis==5.0.8
 pymongo==4.8.0
 elasticsearch==8.15.0
+SQLAlchemy==2.0.32
+pytest==8.3.2
