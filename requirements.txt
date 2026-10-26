@@ -5,3 +5,4 @@ pymongo==4.8.0
 elasticsearch==8.15.0
 SQLAlchemy==2.0.32
 pytest==8.3.2
+Faker==28.4.1
