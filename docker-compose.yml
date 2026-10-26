@@ -1,0 +1,83 @@
+# Starts the four databases for the NBI PoC.
+# Values like ${POSTGRES_USER} are read automatically from the .env file.
+name: nbi-poc
+
+services:
+
+  # PostgreSQL = system of record (ACID transactions: all-or-nothing writes)
+  postgres:
+    image: postgres:16.4
+    container_name: nbi-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"   # only this PC can connect
+    volumes:
+      - pgdata:/var/lib/postgresql/data      # data survives restarts
+    healthcheck:
+      # $$ means "use the variable inside the container", not from .env
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Redis = in-memory store for fast, atomic slot counters
+  redis:
+    image: redis:7.2-alpine
+    container_name: nbi-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # MongoDB = flexible documents for the application status timeline
+  mongodb:
+    image: mongo:7.0
+    container_name: nbi-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "127.0.0.1:${MONGO_PORT}:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  # Elasticsearch = fuzzy (typo-tolerant) candidate name search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: nbi-elasticsearch
+    environment:
+      - discovery.type=single-node           # one node, no cluster
+      - xpack.security.enabled=false         # LOCAL DEMO ONLY, never do this in production
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m       # Java memory: 512 MB
+    mem_limit: 1g                            # hard cap for the whole container: 1 GB
+    ports:
+      - "127.0.0.1:${ES_PORT}:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -Eq '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+volumes:
+  pgdata:
+  redisdata:
+  mongodata:
+  esdata:
