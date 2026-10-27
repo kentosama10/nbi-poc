@@ -1,4 +1,3 @@
-
 """Central settings, read from the .env file. Never hard-code secrets."""
 import os
 
@@ -36,3 +35,6 @@ MONGO_URI = (
 
 # Elasticsearch
 ES_URL = f"http://localhost:{_get('ES_PORT')}"
+
+# Shared secret between us and the (simulated) payment gateway
+WEBHOOK_SECRET = _get("WEBHOOK_SECRET")
