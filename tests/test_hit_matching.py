@@ -89,7 +89,8 @@ def make_applicant():
     created: list[str] = []
 
     def make(**fields) -> str:
-        resp = client.post("/applicants", json={**BASE_APPLICANT, **fields})
+        resp = client.post("/applicants", json={**BASE_APPLICANT, **fields},
+                           headers=APPLICANT)
         assert resp.status_code == 201, resp.text
         created.append(resp.json()["application_ref"])
         return created[-1]
@@ -282,7 +283,7 @@ def test_scenario4_true_match_is_escalated_and_a_human_decides(make_applicant):
     # The applicant-facing timeline updates, and reveals nothing about watchlists
     deadline, st = time.perf_counter() + 5, {}
     while time.perf_counter() < deadline:
-        st = client.get(f"/applications/{ref}/status").json()
+        st = client.get(f"/applications/{ref}/status", headers=APPLICANT).json()
         if "VERIFICATION_COMPLETED" in [e["type"] for e in st["timeline"]]:
             break
         time.sleep(0.1)

@@ -7,7 +7,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
-
+from app import config
 from app.clients import TIMELINE_COLLECTION, get_mongo_db
 from app.db import SessionLocal
 from app.main import app as fastapi_app
@@ -25,7 +25,9 @@ APPLICANT = {
 
 # ------------------------------------------------------------------ helpers
 def make_client() -> TestClient:
-    return TestClient(fastapi_app, raise_server_exceptions=False)
+    # Phase 8: every endpoint needs an API key. The applicant role may book.
+    return TestClient(fastapi_app, raise_server_exceptions=False,
+                      headers={"X-API-Key": config.API_KEY_APPLICANT})
 
 
 def app_id_of(ref: str) -> int:

@@ -1,6 +1,7 @@
 """Build the status view of one application (PostgreSQL facts + MongoDB timeline).
 
-It returns NO personal data. Role-based masking arrives in Phase 8.
+It returns NO personal data. Applicants and front desk get a PUBLIC status;
+reviewers and admins get the INTERNAL one.
 """
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,8 +9,26 @@ from sqlalchemy.orm import Session
 from app.models import Application, Appointment, Payment
 from app.timeline import get_timeline, pending_count
 
+# Internal status -> what an applicant or front desk may see.
+# DESIGN CHOICE: a confirmed HIT shows as "VERIFICATION_COMPLETED", the same as a
+# cleared case, so the system never tips anyone off. Staff follow up outside this PoC.
+PUBLIC_STATUS = {
+    "SUBMITTED": "SUBMITTED",
+    "PAID": "PAID",
+    "SCHEDULED": "SCHEDULED",
+    "UNDER_REVIEW": "VERIFICATION_IN_PROGRESS",
+    "ESCALATED": "VERIFICATION_IN_PROGRESS",
+    "CLEARED": "VERIFICATION_COMPLETED",
+    "HIT_CONFIRMED": "VERIFICATION_COMPLETED",
+}
 
-def get_status(session: Session, application_ref: str) -> dict | None:
+
+def public_status(internal: str) -> str:
+    return PUBLIC_STATUS.get(internal, "IN_PROGRESS")
+
+
+def get_status(session: Session, application_ref: str,
+               internal: bool = False) -> dict | None:
     application = session.scalar(
         select(Application).where(Application.reference_no == application_ref))
     if application is None:
@@ -31,7 +50,8 @@ def get_status(session: Session, application_ref: str) -> dict | None:
 
     return {
         "application_ref": application.reference_no,
-        "status": application.status,
+        "view": "internal" if internal else "public",
+        "status": application.status if internal else public_status(application.status),
         "payment": None if payment is None else {
             "payment_ref": payment.payment_ref,
             "status": payment.status,

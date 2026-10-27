@@ -3,7 +3,7 @@ import threading
 
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
-
+from app import config
 from app.booking import reconcile_slots
 from app.clients import get_redis
 from app.db import SessionLocal
@@ -14,8 +14,9 @@ from app.slots import DEMO_POINTER_KEY
 
 # ------------------------------------------------------------------ helpers
 def make_client() -> TestClient:
-    # raise_server_exceptions=False: a server bug shows up as a 500 response
-    return TestClient(fastapi_app, raise_server_exceptions=False)
+    # Phase 8: every endpoint needs an API key. The applicant role may book.
+    return TestClient(fastapi_app, raise_server_exceptions=False,
+                      headers={"X-API-Key": config.API_KEY_APPLICANT})
 
 
 def free_application_refs(n: int) -> list[str]:

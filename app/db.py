@@ -17,7 +17,10 @@ DATABASE_URL = URL.create(
 
 # The engine manages a pool of reusable connections.
 # pool_pre_ping checks a connection is alive before using it.
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Phase 8: up to 60 connections (PostgreSQL allows 100 by default), because
+# the audit log writes on its own connection.
+engine = create_engine(DATABASE_URL, pool_pre_ping=True,
+                       pool_size=20, max_overflow=40)
 
 # A session factory: call SessionLocal() to get a new session.
 # expire_on_commit=False keeps objects readable after commit.
@@ -29,7 +32,7 @@ class Base(DeclarativeBase):
 
 
 def get_session():
-    """Gives one session per API request and always closes it (used from Phase 5)."""
+    """Gives one session per API request and always closes it."""
     session = SessionLocal()
     try:
         yield session
