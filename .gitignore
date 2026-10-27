@@ -13,3 +13,6 @@ data/*.csv
 # Editor / OS noise
 .vscode/
 .DS_Store
+
+# ML artifacts
+ml/artifacts/

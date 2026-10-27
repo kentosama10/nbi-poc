@@ -1,19 +1,25 @@
 """NBI PoC API (synthetic data only). Run with:  uvicorn app.main:app --reload
 
-Roles and the audit log arrive in Phase 8. Until then these endpoints are open,
-so keep the server on your own PC (Uvicorn listens on 127.0.0.1 by default).
+Phase 7 protects the HIT endpoints with API-key roles. Phase 8 extends roles,
+masking and the audit log to every endpoint. Until then the Phase 5-6 endpoints
+are open, so keep the server on your own PC (Uvicorn listens on 127.0.0.1).
 """
 import uuid
 from datetime import date
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.auth import require_roles
 from app.booking import BookingError, book_appointment, list_slots
 from app.db import get_session
-from app.models import Applicant, Application
+from app.hit_check import (
+    DecisionIn, HitCheckError, decide_case, get_case_view, list_queue, run_hit_check,
+)
+from app.models import Applicant, Application, User
 from app.outbox import enqueue
 from app.payments import (
     PaymentError, PaymentWebhookIn, create_payment, handle_payment_event, verify,
@@ -22,7 +28,7 @@ from app.schemas import ApplicantIn, BookingIn
 from app.status import get_status
 from app.timeline import deliver_pending, pending_count
 
-app = FastAPI(title="NBI Clearance PoC (synthetic data)", version="0.6.0")
+app = FastAPI(title="NBI Clearance PoC (synthetic data)", version="0.7.0")
 
 
 @app.get("/health")
@@ -129,3 +135,61 @@ def application_status(application_ref: str, session: Session = Depends(get_sess
     if status is None:
         raise HTTPException(status_code=404, detail="Application not found")
     return status
+
+
+# ---------------------------------------------------------- Phase 7: HIT matching
+@app.post("/applications/{application_ref}/hit-check")
+def hit_check(
+    application_ref: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles("reviewer", "admin")),
+):
+    """Run the matching pipeline. The AI scores and explains; it never decides."""
+    try:
+        result = run_hit_check(session, application_ref)
+    except HitCheckError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    _sync_timeline(session, result.pop("_application_id"))
+    return result
+
+
+@app.get("/review-queue")
+def review_queue(
+    band: Literal["REVIEW", "ESCALATE"] | None = None,
+    application_ref: str | None = None,
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles("reviewer", "admin")),
+):
+    """Open cases, escalated first, then by probability. Full evidence."""
+    return list_queue(session, band, application_ref, limit, offset)
+
+
+@app.get("/hit-cases/{hit_case_id}")
+def hit_case_detail(
+    hit_case_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles("reviewer", "admin")),
+):
+    """One case with its explanation (including auto-cleared ones, for audit)."""
+    try:
+        return get_case_view(session, hit_case_id)
+    except HitCheckError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+@app.post("/review-queue/{hit_case_id}/decision")
+def review_decision(
+    hit_case_id: int,
+    body: DecisionIn,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_roles("reviewer", "admin")),
+):
+    """The human final decision. The caller's user id is recorded with it."""
+    try:
+        result = decide_case(session, hit_case_id, user.id, body.decision, body.note)
+    except HitCheckError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    _sync_timeline(session, result.pop("_application_id"))
+    return result

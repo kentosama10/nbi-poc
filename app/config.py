@@ -38,3 +38,9 @@ ES_URL = f"http://localhost:{_get('ES_PORT')}"
 
 # Shared secret between us and the (simulated) payment gateway
 WEBHOOK_SECRET = _get("WEBHOOK_SECRET")
+
+# Demo API keys, one per role (synthetic prototype only)
+API_KEY_APPLICANT = _get("API_KEY_APPLICANT")
+API_KEY_FRONTDESK = _get("API_KEY_FRONTDESK")
+API_KEY_REVIEWER = _get("API_KEY_REVIEWER")
+API_KEY_ADMIN = _get("API_KEY_ADMIN")
