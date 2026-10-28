@@ -1,0 +1,5 @@
+[server]
+address = "127.0.0.1"      # only this PC can open the dashboard
+
+[browser]
+gatherUsageStats = false
