@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.audit import list_audit, log_event
+from app.analytics import build_summary
 from app.auth import get_current_user, guard
 from app.booking import BookingError, book_appointment, list_slots
 from app.db import get_session
@@ -262,3 +263,12 @@ def audit_log(
 ):
     """Admin only. Reading the audit log is itself audited."""
     return list_audit(session, limit, offset, action, outcome, username)
+
+# ------------------------------------------------------- Phase 9: analytics
+@app.get("/analytics/summary")
+def analytics_summary(
+    session: Session = Depends(get_session),
+    user: User = Depends(guard("READ_ANALYTICS", "analytics", STAFF_ROLES)),
+):
+    """Aggregate operational numbers. Reviewer and admin only; every call is audited."""
+    return build_summary(session)
