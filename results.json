@@ -1,0 +1,336 @@
+{
+  "generated_at": "2026-10-28T08:37:33+00:00",
+  "seed": 42,
+  "model": {
+    "version": "logreg-v1",
+    "trained_at": "2026-10-27T03:04:41+00:00",
+    "auto_clear": 0.2,
+    "escalate": 0.8,
+    "train_applicants": 7000
+  },
+  "data": {
+    "watchlist": 2000,
+    "applicants": 10000,
+    "test_applicants": 3000
+  },
+  "offline": {
+    "applications": 3000,
+    "flagged": 2813,
+    "need_review": 288,
+    "escalated_apps": 202,
+    "pairs": 67236,
+    "pairs_auto_clear": 66948,
+    "pairs_review": 86,
+    "pairs_escalate": 202,
+    "true_total": 150,
+    "true_retrieved": 150,
+    "true_caught": 150,
+    "true_cleared": 0,
+    "true_not_found": 0,
+    "true_escalated": 150,
+    "true_review": 0,
+    "b_flagged": 1111,
+    "b_caught": 51,
+    "avoided": 2525,
+    "auto_clear_rate": 0.8976,
+    "pair_auto_clear_rate": 0.9957,
+    "wrongly_cleared": 0,
+    "recall": 1.0,
+    "precision": 0.5208,
+    "pair_precision": 0.5208,
+    "baseline_a_recall": 1.0,
+    "baseline_a_precision": 0.0533,
+    "baseline_b_recall": 0.34,
+    "baseline_b_precision": 0.0459,
+    "avoided_vs_b": 823,
+    "avoided_vs_b_rate": 0.7408,
+    "lowest_true_p": 0.9885569961273325,
+    "highest_cleared_p": 0.18378318679685055,
+    "by_category": {
+      "TRUE_MATCH": {
+        "applicants": 150,
+        "flagged": 150,
+        "need_review": 150
+      },
+      "NAMESAKE": {
+        "applicants": 750,
+        "flagged": 750,
+        "need_review": 130
+      },
+      "UNRELATED": {
+        "applicants": 2100,
+        "flagged": 1913,
+        "need_review": 8
+      }
+    },
+    "miss_rate_upper_bound": 0.019773438164508494
+  },
+  "concurrency": {
+    "rounds": [
+      {
+        "succeeded": 1,
+        "slot_full": 49,
+        "other": [],
+        "booked_in_postgres": 1,
+        "seconds": 4.37
+      },
+      {
+        "succeeded": 1,
+        "slot_full": 49,
+        "other": [],
+        "booked_in_postgres": 1,
+        "seconds": 2.24
+      },
+      {
+        "succeeded": 1,
+        "slot_full": 49,
+        "other": [],
+        "booked_in_postgres": 1,
+        "seconds": 2.22
+      },
+      {
+        "succeeded": 1,
+        "slot_full": 49,
+        "other": [],
+        "booked_in_postgres": 1,
+        "seconds": 2.24
+      },
+      {
+        "succeeded": 1,
+        "slot_full": 49,
+        "other": [],
+        "booked_in_postgres": 1,
+        "seconds": 2.25
+      }
+    ],
+    "overbooked_seats": 0,
+    "apps_multi": 0,
+    "overbooked_slots": 0,
+    "double_bookings": 0,
+    "clean_rounds": 5
+  },
+  "payment": {
+    "runs": 20,
+    "delays": [
+      0.042,
+      0.044,
+      0.044,
+      0.045,
+      0.045,
+      0.046,
+      0.046,
+      0.047,
+      0.049,
+      0.05,
+      0.05,
+      0.051,
+      0.052,
+      0.053,
+      0.054,
+      0.055,
+      0.059,
+      0.065,
+      0.066,
+      0.231
+    ],
+    "avg": 0.06,
+    "median": 0.05,
+    "p95": 0.066,
+    "max": 0.231,
+    "within_5s": 20,
+    "consistent": 20,
+    "failures": []
+  },
+  "audit": {
+    "steps": [
+      {
+        "label": "POST /applicants (applicant)",
+        "expected": 1,
+        "observed": 1,
+        "status": 201,
+        "ok": true
+      },
+      {
+        "label": "POST /applications/{ref}/payments (applicant)",
+        "expected": 1,
+        "observed": 1,
+        "status": 201,
+        "ok": true
+      },
+      {
+        "label": "POST /webhooks/payment, valid signature",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "POST /webhooks/payment, forged signature",
+        "expected": 1,
+        "observed": 1,
+        "status": 401,
+        "ok": true
+      },
+      {
+        "label": "GET /applications/{ref}/status (applicant)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /applications/{ref}/status (frontdesk)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /applications/{ref}/status (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /applications/{ref} (frontdesk, masked)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /applications/{ref} (reviewer, full)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "POST /applications/{ref}/hit-check (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /review-queue (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /hit-cases/999999999 (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 404,
+        "ok": true
+      },
+      {
+        "label": "POST /review-queue/999999999/decision (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 404,
+        "ok": true
+      },
+      {
+        "label": "GET /analytics/summary (reviewer)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /audit-log (admin)",
+        "expected": 1,
+        "observed": 1,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "POST /appointments, unknown slot (applicant)",
+        "expected": 1,
+        "observed": 1,
+        "status": 404,
+        "ok": true
+      },
+      {
+        "label": "GET /review-queue (frontdesk) -> 403",
+        "expected": 1,
+        "observed": 1,
+        "status": 403,
+        "ok": true
+      },
+      {
+        "label": "POST /applications/{ref}/hit-check (applicant) -> 403",
+        "expected": 1,
+        "observed": 1,
+        "status": 403,
+        "ok": true
+      },
+      {
+        "label": "GET /analytics/summary (frontdesk) -> 403",
+        "expected": 1,
+        "observed": 1,
+        "status": 403,
+        "ok": true
+      },
+      {
+        "label": "GET /audit-log (reviewer) -> 403",
+        "expected": 1,
+        "observed": 1,
+        "status": 403,
+        "ok": true
+      },
+      {
+        "label": "GET /review-queue (no key) -> 401",
+        "expected": 1,
+        "observed": 1,
+        "status": 401,
+        "ok": true
+      },
+      {
+        "label": "GET /audit-log (wrong key) -> 401",
+        "expected": 1,
+        "observed": 1,
+        "status": 401,
+        "ok": true
+      },
+      {
+        "label": "GET /health (open, not audited)",
+        "expected": 0,
+        "observed": 0,
+        "status": 200,
+        "ok": true
+      },
+      {
+        "label": "GET /slots (any key, not audited)",
+        "expected": 0,
+        "observed": 0,
+        "status": 200,
+        "ok": true
+      }
+    ],
+    "coverage": 1.0,
+    "masking_ok": true,
+    "pii_found": [],
+    "denied_rows": 7
+  },
+  "analytics": {
+    "ok": true,
+    "missing": [],
+    "sections": [
+      "applications",
+      "bookings",
+      "generated_at",
+      "hit",
+      "payments",
+      "queue",
+      "sync",
+      "turnaround"
+    ]
+  },
+  "live_seconds": 16.499278599978425,
+  "offline_seconds": 57.431001999997534
+}
