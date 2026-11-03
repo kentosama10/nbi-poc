@@ -3,8 +3,8 @@
 Run from the project root:   streamlit run dashboard/streamlit_app.py
 The API must be running too:  uvicorn app.main:app
 
-Five pages: New application and payment, Applicant status timeline,
-Book appointment, Staff review queue, Analytics.
+Four pages: New application, appointment and payment, Applicant status timeline,
+Staff review queue, Analytics. Appointment booking is part of the new-application flow.
 Every action goes through the API with the signed-in role's key.
 """
 import sys
@@ -25,8 +25,8 @@ from dashboard.client import call  # noqa: E402
 
 st.set_page_config(page_title="NBI Clearance PoC (synthetic)", layout="wide")
 
-PAGES = ["New application and payment", "Applicant status timeline",
-         "Book appointment", "Staff review queue", "Analytics"]
+PAGES = ["New application, appointment and payment", "Applicant status timeline",
+         "Staff review queue", "Analytics"]
 CUSTOMER_ROLES = ("applicant", "frontdesk", "admin")
 STAFF_ROLES = ("reviewer", "admin")
 
@@ -149,12 +149,14 @@ def render_case(item: dict, role: str, prefix: str) -> None:
 
 # ------------------------------------- page 0: new application and payment
 def page_apply(role: str) -> None:
-    st.header("New application and payment")
-    st.caption("Step 1 creates an application in PostgreSQL. Step 2 requests a payment; a "
-               "simulated gateway then confirms it with a signed webhook, which updates "
-               "PostgreSQL and the MongoDB timeline.")
-    warn_if_role_not_allowed(role, CUSTOMER_ROLES, "create applications or request payments")
-    tab_new, tab_pay = st.tabs(["1. New application", "2. Payment"])
+    st.header("New application, appointment and payment")
+    st.caption("Complete the steps in order: create an application, book an appointment, "
+               "then request payment. The simulated gateway confirms payment with a signed "
+               "webhook, which updates PostgreSQL and the MongoDB timeline.")
+    warn_if_role_not_allowed(
+        role, CUSTOMER_ROLES, "create applications, book appointments or request payments")
+    tab_new, tab_appointment, tab_pay = st.tabs(
+        ["1. New application", "2. Book appointment", "3. Payment"])
 
     # ---------------------------------------------------------- new application
     with tab_new:
@@ -186,7 +188,8 @@ def page_apply(role: str) -> None:
             if res.ok:
                 ref = res.data["application_ref"]
                 st.session_state["last_ref"] = ref      # other pages pre-fill from this
-                st.session_state["pay_ref"] = ref       # the payment tab below uses it now
+                st.session_state["book_ref"] = ref
+                st.session_state["pay_ref"] = ref
                 for k in ("pay_res", "gw_res", "pay_status", "last_event"):
                     st.session_state.pop(k, None)       # start the payment flow fresh
 
@@ -195,9 +198,12 @@ def page_apply(role: str) -> None:
             if res.ok:
                 st.success(f"Application created. Your reference number is "
                            f"**{res.data['application_ref']}** (status {res.data['status']}). "
-                           "Next: open the '2. Payment' tab.")
+                           "Next: open the '2. Book appointment' tab.")
             else:
                 st.error(actions.explain_error(res))
+
+    with tab_appointment:
+        render_booking(role)
 
     # ------------------------------------------------------------------ payment
     with tab_pay:
@@ -257,7 +263,7 @@ def page_apply(role: str) -> None:
                     if d["payment_status"] == "FAILED":
                         st.warning("The payment failed. Press 'Request payment' to start a new attempt.")
                     if d["payment_status"] == "PAID":
-                        st.info("Paid. Next: the 'Book appointment' page (your reference is pre-filled).")
+                        st.info("Payment complete for this application.")
                 else:
                     st.error(actions.explain_error(res))
 
@@ -310,9 +316,7 @@ def page_status(role: str) -> None:
             render_status(s2["status"])
 
 
-# ---------------------------------------------------- page 2: book appointment
-def page_book(role: str) -> None:
-    st.header("Book an appointment")
+def render_booking(role: str) -> None:
     st.caption("Seats are counted in Redis by an atomic script. PostgreSQL keeps the permanent record.")
     warn_if_role_not_allowed(role, CUSTOMER_ROLES, "book appointments")
 
@@ -375,7 +379,7 @@ def page_book(role: str) -> None:
                        f"other responses: {s1['other'] or 'none'}")
 
 
-# ------------------------------------------------------ page 3: review queue
+# ------------------------------------------------------ page 2: review queue
 def page_review(role: str) -> None:
     st.header("Staff review queue")
     st.caption("The AI scores, ranks and explains. A human always makes the final decision.")
@@ -480,7 +484,7 @@ def page_review(role: str) -> None:
             render_case(s4["case"], role, "s4")
 
 
-# --------------------------------------------------------- page 4: analytics
+# --------------------------------------------------------- page 3: analytics
 def render_summary(s: dict) -> None:
     h, q, t = s["hit"], s["queue"], s["turnaround"]["human_review"]
     c = st.columns(4)
@@ -591,5 +595,5 @@ if not health.ok:
     st.error(health.error)
     st.stop()
 
-{PAGES[0]: page_apply, PAGES[1]: page_status, PAGES[2]: page_book,
- PAGES[3]: page_review, PAGES[4]: page_analytics}[page](role)
+{PAGES[0]: page_apply, PAGES[1]: page_status,
+ PAGES[2]: page_review, PAGES[3]: page_analytics}[page](role)
