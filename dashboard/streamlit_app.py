@@ -1,10 +1,15 @@
 """NBI Clearance PoC dashboard (SYNTHETIC DATA ONLY).
 
 Run from the project root:   streamlit run dashboard/streamlit_app.py
-The API must be running too:  uvicorn app.main:app --reload
+The API must be running too:  uvicorn app.main:app
+
+Five pages: New application and payment, Applicant status timeline,
+Book appointment, Staff review queue, Analytics.
+Every action goes through the API with the signed-in role's key.
 """
 import sys
-from datetime import datetime
+import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # Make the project root importable (Streamlit only adds this file's folder)
@@ -15,13 +20,13 @@ if str(ROOT) not in sys.path:
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from dashboard import client, scenarios  # noqa: E402
+from dashboard import actions, client, scenarios  # noqa: E402
 from dashboard.client import call  # noqa: E402
 
 st.set_page_config(page_title="NBI Clearance PoC (synthetic)", layout="wide")
 
-PAGES = ["Applicant status timeline", "Book appointment",
-         "Staff review queue", "Analytics"]
+PAGES = ["New application and payment", "Applicant status timeline",
+         "Book appointment", "Staff review queue", "Analytics"]
 CUSTOMER_ROLES = ("applicant", "frontdesk", "admin")
 STAFF_ROLES = ("reviewer", "admin")
 
@@ -142,17 +147,147 @@ def render_case(item: dict, role: str, prefix: str) -> None:
             st.error(res.error)
 
 
+# ------------------------------------- page 0: new application and payment
+def page_apply(role: str) -> None:
+    st.header("New application and payment")
+    st.caption("Step 1 creates an application in PostgreSQL. Step 2 requests a payment; a "
+               "simulated gateway then confirms it with a signed webhook, which updates "
+               "PostgreSQL and the MongoDB timeline.")
+    warn_if_role_not_allowed(role, CUSTOMER_ROLES, "create applications or request payments")
+    tab_new, tab_pay = st.tabs(["1. New application", "2. Payment"])
+
+    # ---------------------------------------------------------- new application
+    with tab_new:
+        st.info("Use SYNTHETIC details only. Never type a real person's data. "
+                "'Dela Cruz' is a very common surname, so this sample will be flagged "
+                "by name when a reviewer runs the HIT check.")
+        with st.form("new_application"):
+            c1, c2, c3 = st.columns(3)
+            first = c1.text_input("First name", value="Juan", max_chars=80)
+            middle = c2.text_input("Middle name (optional)", value="", max_chars=80)
+            last = c3.text_input("Last name", value="Dela Cruz", max_chars=80)
+            c4, c5 = st.columns(2)
+            birthdate = c4.date_input("Birthdate", value=date(1990, 1, 1),
+                                      min_value=date(1900, 1, 1),
+                                      max_value=date.today() - timedelta(days=1))
+            birthplace = c5.text_input("Birthplace", value="Manila", max_chars=120)
+            mother = st.text_input("Mother's maiden name", value="Maria Santos", max_chars=120)
+            c6, c7 = st.columns(2)
+            email = c6.text_input("Email", value="juan@example.com", max_chars=120)
+            purpose = c7.selectbox("Purpose", actions.PURPOSES)
+            submitted = st.form_submit_button("Submit application")
+
+        if submitted:
+            res = actions.create_application(
+                {"first_name": first, "middle_name": middle, "last_name": last,
+                 "birthdate": birthdate, "birthplace": birthplace,
+                 "mother_maiden_name": mother, "email": email, "purpose": purpose}, role)
+            st.session_state["apply_res"] = res
+            if res.ok:
+                ref = res.data["application_ref"]
+                st.session_state["last_ref"] = ref      # other pages pre-fill from this
+                st.session_state["pay_ref"] = ref       # the payment tab below uses it now
+                for k in ("pay_res", "gw_res", "pay_status", "last_event"):
+                    st.session_state.pop(k, None)       # start the payment flow fresh
+
+        res = st.session_state.get("apply_res")
+        if res is not None:
+            if res.ok:
+                st.success(f"Application created. Your reference number is "
+                           f"**{res.data['application_ref']}** (status {res.data['status']}). "
+                           "Next: open the '2. Payment' tab.")
+            else:
+                st.error(actions.explain_error(res))
+
+    # ------------------------------------------------------------------ payment
+    with tab_pay:
+        st.session_state.setdefault("pay_ref", st.session_state.get("last_ref", "NBI-000001"))
+        ref = st.text_input("Application reference", key="pay_ref").strip()
+        if st.button("Request payment", key="req_pay"):
+            st.session_state["pay_res"] = (ref, actions.request_payment(ref, role))
+            for k in ("gw_res", "pay_status", "last_event"):
+                st.session_state.pop(k, None)
+
+        saved = st.session_state.get("pay_res")
+        pay = None
+        if saved:
+            pay_ref_text, pres = saved
+            if pres.ok:
+                pay = pres.data
+                st.success(f"Payment **{pay['payment_ref']}** for {pay_ref_text}: "
+                           f"{pay['currency']} {pay['amount']}, status {pay['status']}.")
+            else:
+                st.error(actions.explain_error(pres))
+
+        if pay:
+            st.subheader("Simulated payment gateway")
+            st.caption("There is no real gateway here. These buttons play one: each sends a "
+                       "signed webhook to the API, exactly as a real gateway would.")
+            b1, b2, b3 = st.columns(3)
+            action = None
+            if b1.button("Gateway: payment succeeded"):
+                action = "PAID"
+            if b2.button("Gateway: payment failed"):
+                action = "FAILED"
+            if b3.button("Gateway: resend the last event",
+                         disabled="last_event" not in st.session_state):
+                action = "RESEND"
+
+            if action:
+                if action == "RESEND":
+                    sent_status, event_id = st.session_state["last_event"]
+                else:
+                    sent_status, event_id = action, "EVT-UI-" + uuid.uuid4().hex[:8]
+                res = actions.gateway_send(pay["payment_ref"], sent_status,
+                                           pay["amount"], event_id)
+                st.session_state["last_event"] = (sent_status, event_id)
+                st.session_state["gw_res"] = (sent_status, res)
+                st.session_state["pay_status"] = actions.get_status(saved[0], role)
+
+            gw = st.session_state.get("gw_res")
+            if gw:
+                sent_status, res = gw
+                if res.ok:
+                    d = res.data
+                    st.success(f"Webhook ({sent_status}) accepted: result '{d['result']}', "
+                               f"payment is now {d['payment_status']}, "
+                               f"timeline synced: {d['timeline_synced']}.")
+                    if d["result"] == "duplicate":
+                        st.info("The same event arrived twice, and the second copy changed nothing.")
+                    if d["payment_status"] == "FAILED":
+                        st.warning("The payment failed. Press 'Request payment' to start a new attempt.")
+                    if d["payment_status"] == "PAID":
+                        st.info("Paid. Next: the 'Book appointment' page (your reference is pre-filled).")
+                else:
+                    st.error(actions.explain_error(res))
+
+        if saved is not None:
+            if st.button("Show current status", key="pay_status_btn"):
+                st.session_state["pay_status"] = actions.get_status(saved[0], role)
+            ps = st.session_state.get("pay_status")
+            if ps is not None:
+                if ps.ok:
+                    render_status(ps.data)
+                else:
+                    st.error(actions.explain_error(ps))
+
+
 # -------------------------------------------------------- page 1: status
 def page_status(role: str) -> None:
     st.header("Applicant status timeline")
     st.caption("PostgreSQL facts plus the MongoDB timeline. Applicants and front desk "
                "see a PUBLIC status; staff see the internal one.")
-    ref = st.text_input("Application reference", value="NBI-000001", key="status_ref")
+    ref = st.text_input("Application reference",
+                        value=st.session_state.get("last_ref", "NBI-000001"),
+                        key="status_ref")
     if st.button("Look up status"):
         st.session_state["status_res"] = call("GET", f"/applications/{ref.strip()}/status", role)
     res = st.session_state.get("status_res")
     if res is not None:
-        render_status(res.data) if res.ok else st.error(res.error)
+        if res.ok:
+            render_status(res.data)
+        else:
+            st.error(res.error)
 
     st.divider()
     with st.expander("Demo scenario 2: payment webhook updates PostgreSQL and the timeline"):
@@ -202,7 +337,9 @@ def page_book(role: str) -> None:
         key = st.selectbox("Slot", list(by_key), format_func=lambda k: (
             f"{by_key[k]['start'][11:16]} - {by_key[k]['available']} of "
             f"{by_key[k]['capacity']} seats left"))
-        ref = st.text_input("Your application reference", value="NBI-000001", key="book_ref")
+        ref = st.text_input("Your application reference",
+                            value=st.session_state.get("last_ref", "NBI-000001"),
+                            key="book_ref")
         if st.button("Book this slot"):
             r = call("POST", "/appointments", role,
                      json_body={"application_ref": ref.strip(), "slot_key": key})
@@ -234,7 +371,8 @@ def page_book(role: str) -> None:
             c[2].metric("Slot full (409)", s1["slot_full"])
             c[3].metric("Bookings in PostgreSQL", s1["booked_in_postgres"])
             c[4].metric("Seats left in Redis", s1["seats_left"])
-            st.caption(f"Slot {s1['slot_key']} | took {s1['seconds']} s | other responses: {s1['other'] or 'none'}")
+            st.caption(f"Slot {s1['slot_key']} | took {s1['seconds']} s | "
+                       f"other responses: {s1['other'] or 'none'}")
 
 
 # ------------------------------------------------------ page 3: review queue
@@ -280,7 +418,9 @@ def page_review(role: str) -> None:
                 render_case(by_id[chosen], role, "queue")
 
     with tab_h:
-        ref = st.text_input("Application to check", value="NBI-000250", key="hit_ref")
+        ref = st.text_input("Application to check",
+                            value=st.session_state.get("last_ref", "NBI-000250"),
+                            key="hit_ref")
         if st.button("Run HIT check", key="run_hit"):
             st.session_state["hit_res"] = call("POST", f"/applications/{ref.strip()}/hit-check", role)
         res = st.session_state.get("hit_res")
@@ -366,7 +506,7 @@ def render_summary(s: dict) -> None:
     b.bar_chart(pd.Series(q["by_band"]))
 
     bk, sy = s["bookings"], s["sync"]
-    na = lambda v: "n/a" if v is None else v
+    na = lambda v: "n/a" if v is None else v  # noqa: E731
     c = st.columns(5)
     c[0].metric("Booked appointments", bk["booked_appointments"])
     c[1].metric("Apps with 2+ bookings", bk["applications_with_multiple_bookings"])
@@ -431,7 +571,10 @@ def page_analytics(role: str) -> None:
             st.session_state["audit_res"] = call("GET", "/audit-log", role, params={"limit": 20})
         res = st.session_state.get("audit_res")
         if res is not None:
-            render_audit(res.data["items"]) if res.ok else st.error(res.error)
+            if res.ok:
+                render_audit(res.data["items"])
+            else:
+                st.error(res.error)
 
 
 # -------------------------------------------------------------------- main
@@ -440,17 +583,13 @@ st.sidebar.caption("SYNTHETIC DATA ONLY. A prototype, not NBI's real system.")
 page = st.sidebar.radio("Page", PAGES)
 role = st.sidebar.selectbox("Signed in as (demo role switcher)", client.ROLES, index=3)
 st.sidebar.caption(f"API: {client.API_URL}")
+if "last_ref" in st.session_state:
+    st.sidebar.caption(f"Last application you created: {st.session_state['last_ref']}")
 
 health = call("GET", "/health")        # open endpoint, not audited
 if not health.ok:
     st.error(health.error)
     st.stop()
 
-if page == PAGES[0]:
-    page_status(role)
-elif page == PAGES[1]:
-    page_book(role)
-elif page == PAGES[2]:
-    page_review(role)
-else:
-    page_analytics(role)
+{PAGES[0]: page_apply, PAGES[1]: page_status, PAGES[2]: page_book,
+ PAGES[3]: page_review, PAGES[4]: page_analytics}[page](role)
