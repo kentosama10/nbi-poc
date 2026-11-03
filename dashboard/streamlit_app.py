@@ -160,22 +160,20 @@ def page_apply(role: str) -> None:
 
     # ---------------------------------------------------------- new application
     with tab_new:
-        st.info("Use SYNTHETIC details only. Never type a real person's data. "
-                "'Dela Cruz' is a very common surname, so this sample will be flagged "
-                "by name when a reviewer runs the HIT check.")
+        st.info("Use SYNTHETIC details only. Never type a real person's data.")
         with st.form("new_application"):
             c1, c2, c3 = st.columns(3)
-            first = c1.text_input("First name", value="Juan", max_chars=80)
+            first = c1.text_input("First name", value="", max_chars=80)
             middle = c2.text_input("Middle name (optional)", value="", max_chars=80)
-            last = c3.text_input("Last name", value="Dela Cruz", max_chars=80)
+            last = c3.text_input("Last name", value="", max_chars=80)
             c4, c5 = st.columns(2)
-            birthdate = c4.date_input("Birthdate", value=date(1990, 1, 1),
+            birthdate = c4.date_input("Birthdate", value=None,
                                       min_value=date(1900, 1, 1),
                                       max_value=date.today() - timedelta(days=1))
-            birthplace = c5.text_input("Birthplace", value="Manila", max_chars=120)
-            mother = st.text_input("Mother's maiden name", value="Maria Santos", max_chars=120)
+            birthplace = c5.text_input("Birthplace", value="", max_chars=120)
+            mother = st.text_input("Mother's maiden name", value="", max_chars=120)
             c6, c7 = st.columns(2)
-            email = c6.text_input("Email", value="juan@example.com", max_chars=120)
+            email = c6.text_input("Email", value="", max_chars=120)
             purpose = c7.selectbox("Purpose", actions.PURPOSES)
             submitted = st.form_submit_button("Submit application")
 
@@ -187,17 +185,16 @@ def page_apply(role: str) -> None:
             st.session_state["apply_res"] = res
             if res.ok:
                 ref = res.data["application_ref"]
-                st.session_state["last_ref"] = ref      # other pages pre-fill from this
-                st.session_state["book_ref"] = ref
-                st.session_state["pay_ref"] = ref
-                for k in ("pay_res", "gw_res", "pay_status", "last_event"):
+                st.session_state["pending_application_ref"] = ref
+                st.session_state.pop("booked_application_ref", None)
+                for k in ("appointment_res", "pay_ref", "pay_res", "gw_res",
+                          "pay_status", "last_event"):
                     st.session_state.pop(k, None)       # start the payment flow fresh
 
         res = st.session_state.get("apply_res")
         if res is not None:
             if res.ok:
-                st.success(f"Application created. Your reference number is "
-                           f"**{res.data['application_ref']}** (status {res.data['status']}). "
+                st.success(f"Application created (status {res.data['status']}). "
                            "Next: open the '2. Book appointment' tab.")
             else:
                 st.error(actions.explain_error(res))
@@ -207,9 +204,14 @@ def page_apply(role: str) -> None:
 
     # ------------------------------------------------------------------ payment
     with tab_pay:
-        st.session_state.setdefault("pay_ref", st.session_state.get("last_ref", "NBI-000001"))
+        booked_ref = st.session_state.get("booked_application_ref")
+        if not booked_ref:
+            st.info("Book an appointment first to continue to payment.")
+        else:
+            st.caption("Enter the application reference provided after booking your appointment.")
         ref = st.text_input("Application reference", key="pay_ref").strip()
-        if st.button("Request payment", key="req_pay"):
+        if st.button("Request payment", key="req_pay",
+                     disabled=not booked_ref or not ref) and booked_ref and ref:
             st.session_state["pay_res"] = (ref, actions.request_payment(ref, role))
             for k in ("gw_res", "pay_status", "last_event"):
                 st.session_state.pop(k, None)
@@ -319,6 +321,12 @@ def page_status(role: str) -> None:
 def render_booking(role: str) -> None:
     st.caption("Seats are counted in Redis by an atomic script. PostgreSQL keeps the permanent record.")
     warn_if_role_not_allowed(role, CUSTOMER_ROLES, "book appointments")
+    ref = st.session_state.get("pending_application_ref")
+    if not ref:
+        if st.session_state.get("booked_application_ref"):
+            st.info("An appointment is already booked for this application.")
+        else:
+            st.info("Submit a new application first. Its reference will be provided after you book.")
 
     site_names = {"MNL": "NBI Main - Manila", "QC": "NBI Quezon City", "CEB": "NBI Cebu City"}
     left, right = st.columns(2)
@@ -341,19 +349,28 @@ def render_booking(role: str) -> None:
         key = st.selectbox("Slot", list(by_key), format_func=lambda k: (
             f"{by_key[k]['start'][11:16]} - {by_key[k]['available']} of "
             f"{by_key[k]['capacity']} seats left"))
-        ref = st.text_input("Your application reference",
-                            value=st.session_state.get("last_ref", "NBI-000001"),
-                            key="book_ref")
-        if st.button("Book this slot"):
+        if st.button("Book this slot", disabled=not ref) and ref:
             r = call("POST", "/appointments", role,
-                     json_body={"application_ref": ref.strip(), "slot_key": key})
+                     json_body={"application_ref": ref, "slot_key": key})
+            st.session_state["appointment_res"] = r
             if r.ok:
-                st.success(f"Booked at {r.data['site']} on {fmt_time(r.data['slot_start'])}. "
-                           f"Seats left in that slot: {r.data['seats_left']}.")
-            else:
-                st.error(r.error)
+                booked_ref = r.data["application_ref"]
+                st.session_state["booked_application_ref"] = booked_ref
+                st.session_state["last_ref"] = booked_ref
+                st.session_state.pop("pending_application_ref", None)
     elif res.ok:
         st.info("No free slots for this site.")
+
+    booking_res = st.session_state.get("appointment_res")
+    if booking_res is not None:
+        if booking_res.ok:
+            st.success(f"Booked at {booking_res.data['site']} on "
+                       f"{fmt_time(booking_res.data['slot_start'])}. "
+                       f"Your application reference is **"
+                       f"{booking_res.data['application_ref']}**. "
+                       f"Seats left in that slot: {booking_res.data['seats_left']}.")
+        else:
+            st.error(booking_res.error)
 
     st.divider()
     with st.expander("Demo scenario 1: 50 simultaneous requests for the last slot"):
@@ -588,7 +605,7 @@ page = st.sidebar.radio("Page", PAGES)
 role = st.sidebar.selectbox("Signed in as (demo role switcher)", client.ROLES, index=3)
 st.sidebar.caption(f"API: {client.API_URL}")
 if "last_ref" in st.session_state:
-    st.sidebar.caption(f"Last application you created: {st.session_state['last_ref']}")
+    st.sidebar.caption(f"Last booked application reference: {st.session_state['last_ref']}")
 
 health = call("GET", "/health")        # open endpoint, not audited
 if not health.ok:
